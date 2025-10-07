@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploymint Mini - Process Manager</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="apple-touch-icon" href="/assets/icon.png">
+    <style>
+        :root {
+            color-scheme: dark;
+            --mint-primary: #00D4AA;
+            --mint-primary-bright: #00FFC6;
+            --mint-magenta: #FF00FF;
+            --mint-bg: #121212;
+            --mint-surface: #1A1A1A;
+            --mint-surface-elevated: #202020;
+            --mint-border: rgba(0, 255, 198, 0.2);
+            --mint-border-muted: rgba(255, 255, 255, 0.08);
+            --mint-text: #F5F5F5;
+            --mint-text-muted: rgba(245, 245, 245, 0.68);
+            --mint-text-subtle: rgba(245, 245, 245, 0.45);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 32px;
+            background:
+                radial-gradient(circle at top left, rgba(255, 0, 255, 0.26), transparent 55%),
+                radial-gradient(circle at bottom right, rgba(0, 255, 198, 0.22), transparent 50%),
+                var(--mint-bg);
+            color: var(--mint-text);
+        }
+
+        .layout {
+            width: min(960px, 100%);
+            background: linear-gradient(165deg, rgba(18, 18, 18, 0.92), rgba(32, 32, 32, 0.94));
+            border-radius: 28px;
+            border: 1px solid var(--mint-border);
+            box-shadow: 0 32px 88px rgba(0, 0, 0, 0.48);
+            padding: clamp(28px, 4vw, 48px);
+            display: flex;
+            flex-direction: column;
+            gap: clamp(24px, 3vw, 36px);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .brand-mark {
+            width: clamp(48px, 6vw, 64px);
+            height: clamp(48px, 6vw, 64px);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.08);
+            padding: 8px;
+            display: grid;
+            place-items: center;
+            border: 1px solid var(--mint-border-muted);
+        }
+
+        .brand-mark img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .brand-title {
+            font-size: clamp(28px, 4vw, 36px);
+            font-weight: 700;
+            margin: 0;
+            color: var(--mint-text);
+        }
+
+        .brand-subtitle {
+            margin: 4px 0 0;
+            font-size: clamp(14px, 2vw, 16px);
+            color: var(--mint-text-muted);
+        }
+
+        .panel {
+            background: linear-gradient(170deg, rgba(32, 32, 32, 0.98), rgba(26, 26, 26, 0.94));
+            border-radius: 22px;
+            padding: clamp(20px, 3vw, 32px);
+            border: 1px solid var(--mint-border-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .panel__title {
+            margin: 0;
+            font-size: clamp(18px, 3vw, 22px);
+            font-weight: 600;
+            color: var(--mint-text);
+        }
+
+        .input-grid {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .field label {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--mint-text-subtle);
+        }
+
+        .field input {
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid var(--mint-border-muted);
+            background: rgba(255, 255, 255, 0.04);
+            font-size: 15px;
+            color: var(--mint-text);
+            transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+
+        .field input:focus {
+            outline: none;
+            border-color: rgba(0, 255, 198, 0.65);
+            box-shadow: 0 0 0 3px rgba(0, 255, 198, 0.2);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 15px;
+            border-radius: 16px;
+            padding: 14px 18px;
+            border: none;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+        }
+
+        .btn--primary {
+            background: linear-gradient(135deg, var(--mint-primary) 0%, var(--mint-primary-bright) 100%);
+            color: var(--mint-bg);
+            box-shadow: 0 20px 44px rgba(0, 212, 170, 0.42);
+        }
+
+        .btn--primary:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.05);
+        }
+
+        .btn--ghost {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--mint-text);
+        }
+
+        .btn--ghost:hover {
+            filter: brightness(1.05);
+        }
+
+        .btn--full {
+            width: 100%;
+        }
+
+        .panel__actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .panel__actions .btn {
+            min-width: 140px;
+        }
+
+        .server-list {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .server-card {
+            background: var(--mint-surface);
+            border-radius: 18px;
+            padding: 22px 24px;
+            border: 1px solid var(--mint-border-muted);
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .server-card--sample {
+            border-style: dashed;
+            border-color: rgba(0, 255, 198, 0.3);
+            background: rgba(32, 32, 32, 0.85);
+            box-shadow: none;
+        }
+
+        .server-card::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            border-radius: inherit;
+            background: radial-gradient(circle at top right, rgba(0, 255, 198, 0.12), transparent 50%);
+        }
+
+        .server-card--sample::after {
+            display: none;
+        }
+
+        .server-card__header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .server-card__title h3 {
+            margin: 0;
+            font-size: 20px;
+            color: var(--mint-text);
+            font-weight: 700;
+        }
+
+        .server-card__url {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 6px;
+            color: var(--mint-primary-bright);
+            font-size: 14px;
+            text-decoration: none;
+        }
+
+        .server-card__url:hover {
+            text-decoration: underline;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-badge--running {
+            background: rgba(0, 212, 170, 0.24);
+            color: var(--mint-text);
+        }
+
+        .status-badge--running .status-dot {
+            background: var(--mint-primary);
+        }
+
+        .status-badge--stopped {
+            background: rgba(255, 0, 255, 0.22);
+            color: var(--mint-magenta);
+        }
+
+        .status-badge--stopped .status-dot {
+            background: var(--mint-magenta);
+        }
+
+        .status-badge--pending {
+            background: rgba(0, 255, 198, 0.18);
+            color: var(--mint-text);
+        }
+
+        .status-badge--pending .status-dot {
+            background: var(--mint-primary-bright);
+        }
+
+        .status-badge--unknown {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--mint-text-subtle);
+        }
+
+        .status-badge--unknown .status-dot {
+            background: var(--mint-text-subtle);
+        }
+
+        .server-card__meta {
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 0;
+            padding: 0;
+        }
+
+        .meta-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            font-size: 13px;
+            color: var(--mint-text-muted);
+        }
+
+        .meta-chip span {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            color: var(--mint-text-subtle);
+        }
+
+        .meta-chip--muted {
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--mint-text-subtle);
+        }
+
+        .server-card__hint {
+            margin: 0;
+            font-size: 13px;
+            color: var(--mint-text-subtle);
+        }
+
+        .server-card__actions {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        }
+
+        .server-action {
+            border: none;
+            border-radius: 14px;
+            padding: 12px 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+        }
+
+        .server-action:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.05);
+        }
+
+        .server-action__icon {
+            font-size: 14px;
+        }
+
+        .server-action--start {
+            background: linear-gradient(135deg, var(--mint-primary) 0%, var(--mint-primary-bright) 100%);
+            color: var(--mint-bg);
+            box-shadow: 0 14px 36px rgba(0, 212, 170, 0.45);
+        }
+
+        .server-action--stop {
+            background: linear-gradient(135deg, rgba(46, 46, 46, 0.82), rgba(18, 18, 18, 0.92));
+            color: var(--mint-text);
+            box-shadow: 0 14px 32px rgba(0, 0, 0, 0.42);
+        }
+
+        .server-action--restart {
+            background: linear-gradient(135deg, rgba(255, 0, 255, 0.58), rgba(0, 255, 198, 0.7));
+            color: var(--mint-bg);
+            box-shadow: 0 14px 32px rgba(255, 0, 255, 0.34);
+        }
+
+        .server-action--configure {
+            background: rgba(0, 212, 170, 0.2);
+            color: var(--mint-text);
+        }
+
+        .server-action--remove {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--mint-text);
+        }
+
+        .server-card--sample .server-action {
+            opacity: 0.45;
+            pointer-events: none;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            color: var(--mint-text-muted);
+        }
+
+        .empty-state__hint {
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .toast {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            background: rgba(26, 26, 26, 0.96);
+            padding: 18px 24px;
+            border-radius: 18px;
+            box-shadow: 0 24px 54px rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 1000;
+            font-weight: 600;
+            color: var(--mint-text);
+            border: 1px solid var(--mint-border);
+        }
+
+        .toast.show {
+            display: block;
+            animation: toastSlide 0.3s ease;
+        }
+
+        @keyframes toastSlide {
+            from {
+                opacity: 0;
+                transform: translateY(-12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.68);
+            backdrop-filter: blur(6px);
+            align-items: center;
+            justify-content: center;
+            padding: 32px;
+            z-index: 2000;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--mint-surface-elevated);
+            border-radius: 24px;
+            padding: clamp(24px, 3vw, 36px);
+            width: min(520px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6);
+            border: 1px solid var(--mint-border-muted);
+        }
+
+        .modal-title {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--mint-text);
+        }
+
+        .modal__actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 6px;
+        }
+
+        @media (max-width: 720px) {
+            body {
+                padding: 18px;
+            }
+
+            .layout {
+                border-radius: 20px;
+            }
+
+            .panel {
+                border-radius: 18px;
+            }
+
+            .server-card {
+                border-radius: 16px;
+                padding: 20px;
+            }
+
+            .server-card__header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="layout">
+        <header class="brand">
+            <div class="brand-mark">
+                <img src="assets/icon.png" alt="Deploymint Mini emblem">
+            </div>
+            <div>
+                <h1 class="brand-title">Deploymint Mini</h1>
+                <p class="brand-subtitle">Process Manager for Local Node.js Apps</p>
+            </div>
+        </header>
+        <section class="panel" aria-labelledby="add-server-heading">
+            <h2 id="add-server-heading" class="panel__title">Add a Server</h2>
+            <div class="input-grid">
+                <div class="field">
+                    <label for="serverName">Server Name</label>
+                    <input type="text" id="serverName" placeholder="my_server" value="my_server">
+                </div>
+                <div class="field">
+                    <label for="serverUrl">Server URL</label>
+                    <input type="text" id="serverUrl" placeholder="http://localhost:####" value="http://localhost:####">
+                </div>
+            </div>
+            <div class="panel__actions">
+                <button class="btn btn--ghost" type="button" onclick="document.getElementById('importServersInput').click()">
+                    Import Servers
+                </button>
+                <button class="btn btn--ghost" type="button" onclick="exportServers()">
+                    Export Servers
+                </button>
+                <button class="btn btn--primary" type="button" onclick="addServer()">Add Server</button>
+            </div>
+            <input type="file" id="importServersInput" accept="application/json" hidden onchange="handleServerImport(event)">
+        </section>
+
+        <section class="panel" aria-labelledby="servers-heading">
+            <h2 id="servers-heading" class="panel__title">Your Servers</h2>
+            <div id="serverList" class="server-list"></div>
+            <div id="emptyState" class="empty-state">
+                <p class="empty-state__hint">No servers yet. Here’s how your first server will appear:</p>
+                <article class="server-card server-card--sample">
+                    <div class="server-card__header">
+                        <div class="server-card__title">
+                            <h3>PasteBeam Downloader</h3>
+                            <span class="server-card__url">http://localhost:3000</span>
+                        </div>
+                        <span class="status-badge status-badge--running">
+                            <span class="status-dot"></span>
+                            Running
+                        </span>
+                    </div>
+                    <ul class="server-card__meta">
+                        <li class="meta-chip"><span>Port</span>3000</li>
+                        <li class="meta-chip"><span>PID</span>10724</li>
+                    </ul>
+                    <div class="server-card__actions">
+                        <button class="server-action server-action--start" type="button">
+                            <span class="server-action__icon">▶</span>
+                            Start
+                        </button>
+                        <button class="server-action server-action--stop" type="button">
+                            <span class="server-action__icon">■</span>
+                            Stop
+                        </button>
+                        <button class="server-action server-action--restart" type="button">
+                            <span class="server-action__icon">⟳</span>
+                            Restart
+                        </button>
+                        <button class="server-action server-action--configure" type="button">
+                            <span class="server-action__icon">⚙</span>
+                            Configure
+                        </button>
+                        <button class="server-action server-action--remove" type="button">
+                            <span class="server-action__icon">✕</span>
+                            Remove
+                        </button>
+                    </div>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <div id="configModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="configModalTitle">
+        <div class="modal-content">
+            <h2 class="modal-title" id="configModalTitle">Configure Server</h2>
+            <div class="field">
+                <label for="configDirectory">Project Directory</label>
+                <input type="text" id="configDirectory" placeholder="/path/to/your/project">
+            </div>
+            <div class="field">
+                <label for="configCommand">Start Command</label>
+                <input type="text" id="configCommand" placeholder="npm start">
+            </div>
+            <div class="field">
+                <label for="configPort">Port</label>
+                <input type="number" id="configPort" placeholder="3000" min="0">
+            </div>
+            <div class="modal__actions">
+                <button class="btn btn--primary" type="button" onclick="saveConfig()">Save Configuration</button>
+                <button class="btn btn--ghost" type="button" onclick="closeConfigModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STATUS_STYLES = {
+            running: { label: 'Running', badgeClass: 'status-badge status-badge--running' },
+            stopped: { label: 'Stopped', badgeClass: 'status-badge status-badge--stopped' },
+            unconfigured: { label: 'Unconfigured', badgeClass: 'status-badge status-badge--pending' },
+            unknown: { label: 'Unknown', badgeClass: 'status-badge status-badge--unknown' }
+        };
+
+        let servers = JSON.parse(localStorage.getItem('servers') || '[]');
+        let currentConfigUrl = null;
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function downloadBlob(content, filename, contentType = 'application/json') {
+            const blob = new Blob([content], { type: contentType });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            URL.revokeObjectURL(url);
+        }
+
+        async function exportServers() {
+            if (!servers.length) {
+                showToast('No servers to export yet.');
+                return;
+            }
+
+            // Fetch backend configurations for each server
+            const serversWithConfig = await Promise.all(
+                servers.map(async (server) => {
+                    try {
+                        const response = await fetch(`/api/server-config?url=${encodeURIComponent(server.url)}`);
+                        const data = await response.json();
+
+                        return {
+                            name: server.name,
+                            url: server.url,
+                            directory: data.found ? data.config.directory : null,
+                            command: data.found ? data.config.command : null,
+                            port: data.found ? data.config.port : null
+                        };
+                    } catch {
+                        return {
+                            name: server.name,
+                            url: server.url,
+                            directory: null,
+                            command: null,
+                            port: null
+                        };
+                    }
+                })
+            );
+
+            const payload = {
+                generatedAt: new Date().toISOString(),
+                servers: serversWithConfig
+            };
+
+            downloadBlob(JSON.stringify(payload, null, 2), 'deploymint-servers.json');
+            showToast('Server list exported.');
+        }
+
+        function handleServerImport(event) {
+            const file = event.target.files?.[0];
+            if (!file) {
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (loadEvent) => {
+                try {
+                    const text = loadEvent.target?.result;
+                    if (typeof text !== 'string') {
+                        throw new Error('Invalid file contents');
+                    }
+
+                    const parsed = JSON.parse(text);
+                    if (!parsed || !Array.isArray(parsed.servers)) {
+                        throw new Error('Expected a "servers" array in JSON.');
+                    }
+
+                    const normalized = parsed.servers
+                        .map((server, index) => {
+                            if (!server || typeof server !== 'object') {
+                                throw new Error(`Server entry at index ${index} is not an object.`);
+                            }
+
+                            const name = (server.name || '').trim();
+                            const url = (server.url || '').trim();
+                            if (!name || !url) {
+                                throw new Error(`Server entry at index ${index} must include non-empty "name" and "url" fields.`);
+                            }
+
+                            return {
+                                id: Date.now() + index,
+                                name,
+                                url,
+                                status: server.status || 'unconfigured',
+                                port: server.port ?? null,
+                                pid: server.pid ?? null,
+                                // Store config data for backend sync
+                                _config: {
+                                    directory: server.directory,
+                                    command: server.command,
+                                    port: server.port
+                                }
+                            };
+                        });
+
+                    if (!normalized.length) {
+                        throw new Error('No valid servers found in the file.');
+                    }
+
+                    // Merge imported servers with existing ones, preventing duplicate URLs
+                    const existingUrls = new Set(servers.map(server => server.url));
+                    const merged = [...servers];
+                    let addedCount = 0;
+                    const configsToSave = [];
+
+                    normalized.forEach((server) => {
+                        if (!existingUrls.has(server.url)) {
+                            merged.push(server);
+                            existingUrls.add(server.url);
+                            addedCount += 1;
+
+                            // Queue backend config save if present
+                            if (server._config && server._config.directory && server._config.command && server._config.port) {
+                                configsToSave.push({
+                                    url: server.url,
+                                    directory: server._config.directory,
+                                    command: server._config.command,
+                                    port: server._config.port
+                                });
+                            }
+                        }
+                    });
+
+                    if (!addedCount) {
+                        showToast('All servers in the file were already present.');
+                    } else {
+                        servers = merged;
+                        localStorage.setItem('servers', JSON.stringify(servers));
+
+                        // Save backend configurations
+                        Promise.all(
+                            configsToSave.map((config) =>
+                                fetch('/api/server-config', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(config)
+                                })
+                            )
+                        ).then(() => {
+                            renderServers();
+                            // Refresh status for all imported servers
+                            servers.forEach(server => checkServerStatus(server.id));
+                        });
+
+                        showToast(`Imported ${addedCount} server${addedCount > 1 ? 's' : ''}.`);
+                    }
+                } catch (error) {
+                    console.error('Import failed:', error);
+                    showToast(`Import failed: ${error.message}`);
+                } finally {
+                    event.target.value = '';
+                }
+            };
+
+            reader.onerror = () => {
+                showToast('Unable to read the selected file.');
+                event.target.value = '';
+            };
+
+            reader.readAsText(file);
+        }
+
+        function addServer() {
+            const nameInput = document.getElementById('serverName');
+            const urlInput = document.getElementById('serverUrl');
+            const name = nameInput.value.trim();
+            const url = urlInput.value.trim();
+
+            if (!name || !url) {
+                showToast('Please provide both a server name and URL.');
+                return;
+            }
+
+            const id = Date.now();
+            servers.push({
+                id,
+                name,
+                url,
+                status: 'unconfigured',
+                port: null,
+                pid: null
+            });
+
+            localStorage.setItem('servers', JSON.stringify(servers));
+            renderServers();
+            showToast('Server added! Configure it to get started.');
+            nameInput.value = '';
+            urlInput.value = '';
+        }
+
+        function removeServer(id) {
+            servers = servers.filter(server => server.id !== id);
+            localStorage.setItem('servers', JSON.stringify(servers));
+            renderServers();
+            showToast('Server removed.');
+        }
+
+        function openConfigModal(id) {
+            const server = servers.find(s => s.id === id);
+            if (!server) return;
+
+            currentConfigUrl = server.url;
+            document.getElementById('configDirectory').value = '';
+            document.getElementById('configCommand').value = '';
+            document.getElementById('configPort').value = '';
+            document.getElementById('configModal').classList.add('show');
+
+            fetch(`/api/server-config?url=${encodeURIComponent(server.url)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.found) {
+                        document.getElementById('configDirectory').value = data.config.directory || '';
+                        document.getElementById('configCommand').value = data.config.command || '';
+                        document.getElementById('configPort').value = data.config.port || '';
+                    }
+                })
+                .catch(() => {
+                    /* ignore silent failures */
+                });
+        }
+
+        function closeConfigModal() {
+            document.getElementById('configModal').classList.remove('show');
+            currentConfigUrl = null;
+        }
+
+        async function saveConfig() {
+            const directory = document.getElementById('configDirectory').value.trim();
+            const command = document.getElementById('configCommand').value.trim();
+            const port = document.getElementById('configPort').value.trim();
+
+            if (!directory || !command || !port) {
+                showToast('Please fill in all configuration fields.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/server-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: currentConfigUrl,
+                        directory,
+                        command,
+                        port: parseInt(port, 10)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Configuration saved!');
+                    closeConfigModal();
+                    const server = servers.find(s => s.url === currentConfigUrl);
+                    if (server) {
+                        checkServerStatus(server.id);
+                    }
+                } else {
+                    showToast(`Error: ${data.error}`);
+                }
+            } catch (error) {
+                showToast(`Error: ${error.message}`);
+            }
+        }
+
+        async function checkServerStatus(id) {
+            const server = servers.find(s => s.id === id);
+            if (!server) return;
+
+            try {
+                const response = await fetch(`/api/status?url=${encodeURIComponent(server.url)}`);
+                const data = await response.json();
+
+                server.status = data.status || 'unknown';
+                server.pid = data.pid || null;
+                server.port = data.port || server.port;
+                servers = servers.map(s => (s.id === id ? server : s));
+                localStorage.setItem('servers', JSON.stringify(servers));
+                renderServers();
+            } catch (error) {
+                console.error('Status check failed:', error);
+            }
+        }
+
+        async function performAction(id, action) {
+            const server = servers.find(s => s.id === id);
+            if (!server) return;
+
+            if (server.status === 'unconfigured' && action !== 'restart') {
+                showToast('Configure the server before managing it.');
+                openConfigModal(id);
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/${action}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: server.url })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message || 'Action completed.');
+                    setTimeout(() => checkServerStatus(id), 2000);
+                } else {
+                    showToast(data.error || 'Action failed.');
+                }
+            } catch (error) {
+                showToast(`Error: ${error.message}`);
+            }
+        }
+
+        function createServerCard(server) {
+            const safeName = escapeHtml(server.name || 'Untitled Server');
+            const safeUrl = escapeHtml(server.url || '');
+            const status = STATUS_STYLES[server.status] || STATUS_STYLES.unknown;
+
+            const metaItems = [];
+            if (server.port) {
+                metaItems.push(`<li class="meta-chip"><span>Port</span>${escapeHtml(server.port)}</li>`);
+            }
+            if (server.pid) {
+                metaItems.push(`<li class="meta-chip"><span>PID</span>${escapeHtml(server.pid)}</li>`);
+            }
+
+            const metaHtml = metaItems.length
+                ? `<ul class="server-card__meta">${metaItems.join('')}</ul>`
+                : `<p class="server-card__hint">Configure this server to set its directory, command, and port.</p>`;
+
+            const urlHtml = safeUrl
+                ? `<a href="${server.url}" target="_blank" rel="noopener" class="server-card__url">${safeUrl}</a>`
+                : '';
+
+            return `
+                <article class="server-card">
+                    <div class="server-card__header">
+                        <div class="server-card__title">
+                            <h3>${safeName}</h3>
+                            ${urlHtml}
+                        </div>
+                        <span class="${status.badgeClass}">
+                            <span class="status-dot"></span>
+                            ${status.label}
+                        </span>
+                    </div>
+                    ${metaHtml}
+                    <div class="server-card__actions">
+                        <button class="server-action server-action--start" type="button" onclick="performAction(${server.id}, 'start')" aria-label="Start server">
+                            <span class="server-action__icon">▶</span>
+                            Start
+                        </button>
+                        <button class="server-action server-action--stop" type="button" onclick="performAction(${server.id}, 'stop')" aria-label="Stop server">
+                            <span class="server-action__icon">■</span>
+                            Stop
+                        </button>
+                        <button class="server-action server-action--restart" type="button" onclick="performAction(${server.id}, 'restart')" aria-label="Restart server">
+                            <span class="server-action__icon">⟳</span>
+                            Restart
+                        </button>
+                        <button class="server-action server-action--configure" type="button" onclick="openConfigModal(${server.id})" aria-label="Configure server">
+                            <span class="server-action__icon">⚙</span>
+                            Configure
+                        </button>
+                        <button class="server-action server-action--remove" type="button" onclick="removeServer(${server.id})" aria-label="Remove server">
+                            <span class="server-action__icon">✕</span>
+                            Remove
+                        </button>
+                    </div>
+                </article>
+            `;
+        }
+
+        function renderServers() {
+            const list = document.getElementById('serverList');
+            const emptyState = document.getElementById('emptyState');
+
+            if (servers.length === 0) {
+                list.innerHTML = '';
+                emptyState.style.display = 'flex';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            list.innerHTML = servers.map(createServerCard).join('');
+        }
+
+        renderServers();
+        servers.forEach(server => checkServerStatus(server.id));
+        setInterval(() => {
+            servers.forEach(server => checkServerStatus(server.id));
+        }, 5000);
+    </script>
+</body>
+</html>

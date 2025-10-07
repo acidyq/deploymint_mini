@@ -1,0 +1,20 @@
+{
+  "name": "deploymint-mini",
+  "version": "1.0.0",
+  "description": "Minimal server manager for local Node.js processes",
+  "main": "api/server.js",
+  "scripts": {
+    "start": "node api/server.js",
+    "dev": "nodemon api/server.js"
+  },
+  "keywords": ["process-manager", "server-manager", "minimal"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
