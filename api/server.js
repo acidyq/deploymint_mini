@@ -379,6 +379,154 @@ app.post('/api/stop', async (req, res) => {
     }
 });
 
+// Start all servers
+app.post('/api/start-all', async (req, res) => {
+    const { urls } = req.body;
+
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'URLs array is required'
+        });
+    }
+
+    const servers = loadServers();
+    const results = {
+        started: [],
+        failed: [],
+        skipped: []
+    };
+
+    for (const url of urls) {
+        try {
+            const config = servers[url];
+
+            if (!config) {
+                results.skipped.push({ url, reason: 'Not configured' });
+                continue;
+            }
+
+            const ports = getConfigPorts(config);
+            if (!ports.length) {
+                results.skipped.push({ url, reason: 'No ports configured' });
+                continue;
+            }
+
+            if (!fs.existsSync(config.directory)) {
+                results.failed.push({ url, reason: `Directory not found: ${config.directory}` });
+                continue;
+            }
+
+            // Free the ports if anything else is running there
+            try {
+                await ensurePortsFree(ports);
+            } catch (portError) {
+                results.failed.push({ url, reason: portError.message });
+                continue;
+            }
+
+            const pid = launchServer(config, url);
+            results.started.push({ url, pid, port: ports[0] });
+        } catch (error) {
+            results.failed.push({ url, reason: error.message });
+        }
+    }
+
+    const totalProcessed = results.started.length + results.failed.length + results.skipped.length;
+    const message = `Started ${results.started.length}/${totalProcessed} servers.` +
+        (results.failed.length ? ` ${results.failed.length} failed.` : '') +
+        (results.skipped.length ? ` ${results.skipped.length} skipped.` : '');
+
+    res.json({
+        success: results.started.length > 0,
+        message,
+        results
+    });
+});
+
+// Stop all servers
+app.post('/api/stop-all', async (req, res) => {
+    const { urls } = req.body;
+
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'URLs array is required'
+        });
+    }
+
+    const servers = loadServers();
+    const results = {
+        stopped: [],
+        failed: [],
+        notRunning: []
+    };
+
+    for (const url of urls) {
+        try {
+            const config = servers[url];
+
+            if (!config) {
+                results.failed.push({ url, reason: 'Not configured' });
+                continue;
+            }
+
+            const ports = getConfigPorts(config);
+            if (!ports.length) {
+                results.failed.push({ url, reason: 'No ports configured' });
+                continue;
+            }
+
+            const portChecks = await Promise.all(
+                ports.map(async (port) => {
+                    const check = await checkPort(port);
+                    return {
+                        port,
+                        ...check
+                    };
+                })
+            );
+
+            const runningPorts = portChecks.filter((check) => check.running);
+
+            if (!runningPorts.length) {
+                results.notRunning.push({ url, reason: 'Server not running' });
+                continue;
+            }
+
+            // Kill the processes
+            try {
+                for (const portInfo of runningPorts) {
+                    await killProcesses(portInfo.pids);
+                    await delay(200);
+                }
+                await delay(200);
+
+                processes.delete(url);
+                results.stopped.push({
+                    url,
+                    ports: runningPorts.map(p => p.port)
+                });
+            } catch (killError) {
+                results.failed.push({ url, reason: killError.message });
+            }
+        } catch (error) {
+            results.failed.push({ url, reason: error.message });
+        }
+    }
+
+    const totalProcessed = results.stopped.length + results.failed.length + results.notRunning.length;
+    const message = `Stopped ${results.stopped.length}/${totalProcessed} servers.` +
+        (results.failed.length ? ` ${results.failed.length} failed.` : '') +
+        (results.notRunning.length ? ` ${results.notRunning.length} not running.` : '');
+
+    res.json({
+        success: results.stopped.length > 0,
+        message,
+        results
+    });
+});
+
 // Restart server
 app.post('/api/restart', async (req, res) => {
     const { url } = req.body;

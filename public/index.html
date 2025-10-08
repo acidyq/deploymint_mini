@@ -324,6 +324,13 @@
             gap: 16px;
         }
 
+        .server-card__header-left {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            flex: 1;
+        }
+
         .server-card__title h3 {
             margin: 0;
             font-size: 20px;
@@ -500,6 +507,50 @@
             pointer-events: none;
         }
 
+        .server-card--collapsed .server-card__meta,
+        .server-card--collapsed .server-card__actions {
+            display: none;
+        }
+
+        .server-card__expand {
+            background: transparent;
+            border: none;
+            color: var(--mint-text-muted);
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 18px;
+            transition: color 0.2s ease, transform 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .server-card__expand:hover {
+            color: var(--mint-text);
+        }
+
+        .server-card--collapsed .server-card__expand {
+            transform: rotate(-90deg);
+        }
+
+        .panel__header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .panel__bulk-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .panel__bulk-actions .btn {
+            min-width: 100px;
+        }
+
         .empty-state {
             display: flex;
             flex-direction: column;
@@ -646,7 +697,15 @@
         </section>
 
         <section class="panel" aria-labelledby="servers-heading">
-            <h2 id="servers-heading" class="panel__title">Your Servers</h2>
+            <div class="panel__header">
+                <h2 id="servers-heading" class="panel__title">Your Servers</h2>
+                <div class="panel__bulk-actions">
+                    <button class="btn btn--ghost" type="button" onclick="collapseAll()">Collapse All</button>
+                    <button class="btn btn--ghost" type="button" onclick="expandAll()">Expand All</button>
+                    <button class="btn btn--primary" type="button" onclick="startAll()">Start All</button>
+                    <button class="btn btn--ghost" type="button" onclick="stopAll()">Stop All</button>
+                </div>
+            </div>
             <div id="serverList" class="server-list"></div>
             <div id="emptyState" class="empty-state">
                 <p class="empty-state__hint">No servers yet. Here’s how your first server will appear:</p>
@@ -739,6 +798,7 @@
 
         let servers = JSON.parse(localStorage.getItem('servers') || '[]');
         let currentConfigUrl = null;
+        let collapsedServers = JSON.parse(localStorage.getItem('collapsedServers') || '[]');
 
         function escapeHtml(value) {
             return String(value || '')
@@ -1063,6 +1123,95 @@
             }
         }
 
+        function toggleServerExpansion(id) {
+            const index = collapsedServers.indexOf(id);
+            if (index > -1) {
+                collapsedServers.splice(index, 1);
+            } else {
+                collapsedServers.push(id);
+            }
+            localStorage.setItem('collapsedServers', JSON.stringify(collapsedServers));
+            renderServers();
+        }
+
+        function collapseAll() {
+            collapsedServers = servers.map(s => s.id);
+            localStorage.setItem('collapsedServers', JSON.stringify(collapsedServers));
+            renderServers();
+            showToast('All servers collapsed.');
+        }
+
+        function expandAll() {
+            collapsedServers = [];
+            localStorage.setItem('collapsedServers', JSON.stringify(collapsedServers));
+            renderServers();
+            showToast('All servers expanded.');
+        }
+
+        async function startAll() {
+            const configuredServers = servers.filter(s => s.status !== 'unconfigured');
+
+            if (configuredServers.length === 0) {
+                showToast('No configured servers to start.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/start-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        urls: configuredServers.map(s => s.url)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message || 'All servers are starting.');
+                    setTimeout(() => {
+                        servers.forEach(server => checkServerStatus(server.id));
+                    }, 2000);
+                } else {
+                    showToast(data.error || 'Failed to start all servers.');
+                }
+            } catch (error) {
+                showToast(`Error: ${error.message}`);
+            }
+        }
+
+        async function stopAll() {
+            const runningServers = servers.filter(s => s.status === 'running');
+
+            if (runningServers.length === 0) {
+                showToast('No running servers to stop.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/stop-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        urls: runningServers.map(s => s.url)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(data.message || 'All servers are stopping.');
+                    setTimeout(() => {
+                        servers.forEach(server => checkServerStatus(server.id));
+                    }, 2000);
+                } else {
+                    showToast(data.error || 'Failed to stop all servers.');
+                }
+            } catch (error) {
+                showToast(`Error: ${error.message}`);
+            }
+        }
+
         async function performAction(id, action) {
             const server = servers.find(s => s.id === id);
             if (!server) return;
@@ -1143,6 +1292,8 @@
             const badgeLabel = isBusy ? actionLabel : statusInfo.label;
             const busyAttr = isBusy ? 'aria-busy="true"' : 'aria-busy="false"';
             const disabledAttr = isBusy ? 'disabled' : '';
+            const isCollapsed = collapsedServers.includes(server.id);
+            const collapsedClass = isCollapsed ? ' server-card--collapsed' : '';
 
             const metaItems = [];
             const portList = Array.isArray(server.activePorts) && server.activePorts.length
@@ -1177,12 +1328,17 @@
                 : '';
 
             return `
-                <article class="server-card" ${busyAttr}>
+                <article class="server-card${collapsedClass}" ${busyAttr}>
                     ${progressOverlay}
                     <div class="server-card__header">
-                        <div class="server-card__title">
-                            <h3>${safeName}</h3>
-                            ${urlHtml}
+                        <div class="server-card__header-left">
+                            <button class="server-card__expand" onclick="toggleServerExpansion(${server.id})" aria-label="Toggle server details" type="button">
+                                ▼
+                            </button>
+                            <div class="server-card__title">
+                                <h3>${safeName}</h3>
+                                ${urlHtml}
+                            </div>
                         </div>
                         <span class="${badgeClass}">
                             <span class="status-dot"></span>
