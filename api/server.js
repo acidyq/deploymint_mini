@@ -36,6 +36,34 @@ function saveServers(servers) {
     }
 }
 
+function getConfigPorts(config) {
+    const ports = new Set();
+
+    const addPort = (value) => {
+        if (value === undefined || value === null) {
+            return;
+        }
+
+        const portNumber = Number(value);
+
+        if (!Number.isNaN(portNumber) && portNumber > 0) {
+            ports.add(portNumber);
+        }
+    };
+
+    addPort(config.port);
+
+    if (Array.isArray(config.ports)) {
+        config.ports.forEach(addPort);
+    }
+
+    if (Array.isArray(config.additionalPorts)) {
+        config.additionalPorts.forEach(addPort);
+    }
+
+    return Array.from(ports);
+}
+
 // Check if process is running on a port
 function checkPort(port) {
     return new Promise((resolve) => {
@@ -88,6 +116,23 @@ async function ensurePortFree(port) {
     }
 
     return { freed: true, pids: initial.pids };
+}
+
+async function ensurePortsFree(ports) {
+    const freedPorts = [];
+
+    for (const port of ports) {
+        const result = await ensurePortFree(port);
+
+        if (result.freed) {
+            freedPorts.push({
+                port,
+                pids: result.pids
+            });
+        }
+    }
+
+    return freedPorts;
 }
 
 function launchServer(config, url) {
@@ -159,18 +204,34 @@ app.get('/api/status', async (req, res) => {
             return res.json({ status: 'unconfigured', message: 'Server not configured' });
         }
 
-        const portCheck = await checkPort(config.port);
+        const ports = getConfigPorts(config);
+        if (!ports.length) {
+            return res.json({ status: 'unconfigured', message: 'No ports configured for server' });
+        }
+        const portChecks = await Promise.all(
+            ports.map(async (port) => {
+                const check = await checkPort(port);
+                return {
+                    port,
+                    ...check
+                };
+            })
+        );
 
-        if (portCheck.running) {
+        const runningPort = portChecks.find((check) => check.running);
+
+        if (runningPort) {
             return res.json({
                 status: 'running',
-                pid: portCheck.pid,
-                port: config.port
+                pid: runningPort.pid,
+                port: runningPort.port,
+                ports: portChecks
             });
         } else {
             return res.json({
                 status: 'stopped',
-                port: config.port
+                port: ports[0],
+                ports: portChecks
             });
         }
     } catch (error) {
@@ -198,9 +259,16 @@ app.post('/api/start', async (req, res) => {
         }
 
         // Free the port if anything else is running there
-        let freedPortInfo;
+        const ports = getConfigPorts(config);
+        if (!ports.length) {
+            return res.status(400).json({
+                success: false,
+                error: 'No ports configured. Please add at least one port.'
+            });
+        }
+        let freedPortInfo = [];
         try {
-            freedPortInfo = await ensurePortFree(config.port);
+            freedPortInfo = await ensurePortsFree(ports);
         } catch (portError) {
             return res.status(500).json({
                 success: false,
@@ -218,15 +286,17 @@ app.post('/api/start', async (req, res) => {
 
         const pid = launchServer(config, url);
 
-        const replacementNote = freedPortInfo?.freed
-            ? ` Replaced previous process on port ${config.port} (PID(s): ${freedPortInfo.pids.join(', ')}).`
+        const replacementNote = freedPortInfo.length
+            ? ` Replaced previous process(es) on port(s): ${freedPortInfo
+                  .map((info) => `${info.port} (PID(s): ${info.pids.join(', ')})`)
+                  .join(', ')}.`
             : '';
 
         res.json({
             success: true,
-            message: `Server starting on port ${config.port}.${replacementNote}`,
+            message: `Server starting on port ${ports[0]}.${replacementNote}`,
             pid,
-            replacedPids: freedPortInfo?.pids || []
+            replacedPorts: freedPortInfo
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -252,9 +322,26 @@ app.post('/api/stop', async (req, res) => {
             });
         }
 
-        const portCheck = await checkPort(config.port);
+        const ports = getConfigPorts(config);
+        if (!ports.length) {
+            return res.status(400).json({
+                success: false,
+                error: 'No ports configured. Please add at least one port.'
+            });
+        }
+        const portChecks = await Promise.all(
+            ports.map(async (port) => {
+                const check = await checkPort(port);
+                return {
+                    port,
+                    ...check
+                };
+            })
+        );
 
-        if (!portCheck.running) {
+        const runningPorts = portChecks.filter((check) => check.running);
+
+        if (!runningPorts.length) {
             return res.json({
                 success: false,
                 error: 'Server is not running'
@@ -263,14 +350,23 @@ app.post('/api/stop', async (req, res) => {
 
         // Kill the process
         try {
-            await killProcesses(portCheck.pids);
+            for (const portInfo of runningPorts) {
+                await killProcesses(portInfo.pids);
+                await delay(200);
+            }
             await delay(200);
 
             processes.delete(url);
 
             res.json({
                 success: true,
-                message: `Server stopped (PID(s): ${portCheck.pids.join(', ')})`
+                message: `Server stopped on port(s): ${runningPorts
+                    .map((info) => `${info.port} (PID(s): ${info.pids.join(', ')})`)
+                    .join(', ')}`,
+                stoppedPorts: runningPorts.map((info) => ({
+                    port: info.port,
+                    pids: info.pids
+                }))
             });
         } catch (killError) {
             res.json({
@@ -302,9 +398,16 @@ app.post('/api/restart', async (req, res) => {
             });
         }
 
-        let freedPortInfo;
+        const ports = getConfigPorts(config);
+        if (!ports.length) {
+            return res.status(400).json({
+                success: false,
+                error: 'No ports configured. Please add at least one port.'
+            });
+        }
+        let freedPortInfo = [];
         try {
-            freedPortInfo = await ensurePortFree(config.port);
+            freedPortInfo = await ensurePortsFree(ports);
         } catch (portError) {
             return res.status(500).json({
                 success: false,
@@ -320,16 +423,18 @@ app.post('/api/restart', async (req, res) => {
         }
 
         const pid = launchServer(config, url);
-        const action = freedPortInfo?.freed ? 'restarted' : 'started';
-        const replacementNote = freedPortInfo?.freed
-            ? ` Replaced previous process on port ${config.port} (PID(s): ${freedPortInfo.pids.join(', ')}).`
+        const action = freedPortInfo.length ? 'restarted' : 'started';
+        const replacementNote = freedPortInfo.length
+            ? ` Replaced previous process(es) on port(s): ${freedPortInfo
+                  .map((info) => `${info.port} (PID(s): ${info.pids.join(', ')})`)
+                  .join(', ')}.`
             : '';
 
         res.json({
             success: true,
-            message: `Server ${action} on port ${config.port}.${replacementNote}`,
+            message: `Server ${action} on port ${ports[0]}.${replacementNote}`,
             pid,
-            replacedPids: freedPortInfo?.pids || []
+            replacedPorts: freedPortInfo
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

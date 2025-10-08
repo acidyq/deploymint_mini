@@ -160,6 +160,66 @@
             transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
         }
 
+        .btn:disabled,
+        .server-action:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            transform: none;
+            filter: grayscale(0.2) brightness(0.9);
+            box-shadow: none;
+        }
+
+        .btn:disabled:hover,
+        .server-action:disabled:hover {
+            transform: none;
+            filter: grayscale(0.2) brightness(0.9);
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .diamond-spinner {
+            position: relative;
+            width: 18px;
+            height: 18px;
+            display: inline-block;
+        }
+
+        .diamond-spinner::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.92);
+            border-radius: 5px;
+            box-shadow: 0 0 16px rgba(255, 255, 255, 0.35);
+            transform: rotate(45deg);
+            animation: diamondSpin 1s linear infinite;
+        }
+
+        @keyframes diamondSpin {
+            0% {
+                transform: rotate(45deg) scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: rotate(225deg) scale(0.88);
+                opacity: 0.85;
+            }
+            100% {
+                transform: rotate(405deg) scale(1);
+                opacity: 1;
+            }
+        }
+
         .btn--primary {
             background: linear-gradient(135deg, var(--mint-primary) 0%, var(--mint-primary-bright) 100%);
             color: var(--mint-bg);
@@ -212,6 +272,29 @@
             gap: 18px;
             position: relative;
             overflow: hidden;
+        }
+
+        .server-card__progress {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            background: rgba(18, 18, 18, 0.68);
+            backdrop-filter: blur(4px);
+            z-index: 2;
+            pointer-events: all;
+            cursor: progress;
+        }
+
+        .server-card__progress-text {
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.72);
         }
 
         .server-card--sample {
@@ -637,8 +720,21 @@
         const STATUS_STYLES = {
             running: { label: 'Running', badgeClass: 'status-badge status-badge--running' },
             stopped: { label: 'Stopped', badgeClass: 'status-badge status-badge--stopped' },
+            pending: { label: 'Working...', badgeClass: 'status-badge status-badge--pending' },
             unconfigured: { label: 'Unconfigured', badgeClass: 'status-badge status-badge--pending' },
             unknown: { label: 'Unknown', badgeClass: 'status-badge status-badge--unknown' }
+        };
+
+        const ACTION_LABELS = {
+            start: 'Starting...',
+            stop: 'Stopping...',
+            restart: 'Restarting...'
+        };
+
+        const ACTION_PROGRESS_TEXT = {
+            start: 'Starting server',
+            stop: 'Stopping server',
+            restart: 'Restarting server'
         };
 
         let servers = JSON.parse(localStorage.getItem('servers') || '[]');
@@ -940,10 +1036,26 @@
                 const response = await fetch(`/api/status?url=${encodeURIComponent(server.url)}`);
                 const data = await response.json();
 
-                server.status = data.status || 'unknown';
-                server.pid = data.pid || null;
-                server.port = data.port || server.port;
-                servers = servers.map(s => (s.id === id ? server : s));
+                const resolvedStatus = data.status || 'unknown';
+                const resolvedPort = data.port ?? server.port;
+                const activePorts = Array.isArray(data.ports) ? data.ports : null;
+
+                const updatedServer = {
+                    ...server,
+                    status: resolvedStatus,
+                    pid: data.pid || null,
+                    port: resolvedPort,
+                    pendingAction: null,
+                    previousStatus: null
+                };
+
+                if (activePorts) {
+                    updatedServer.activePorts = activePorts;
+                } else {
+                    delete updatedServer.activePorts;
+                }
+
+                servers = servers.map(s => (s.id === id ? updatedServer : s));
                 localStorage.setItem('servers', JSON.stringify(servers));
                 renderServers();
             } catch (error) {
@@ -955,11 +1067,48 @@
             const server = servers.find(s => s.id === id);
             if (!server) return;
 
+            if (server.pendingAction) {
+                showToast('Please wait for the current action to finish.');
+                return;
+            }
+
             if (server.status === 'unconfigured' && action !== 'restart') {
                 showToast('Configure the server before managing it.');
                 openConfigModal(id);
                 return;
             }
+
+            const previousState = {
+                status: server.status,
+                pid: server.pid,
+                port: server.port
+            };
+
+            const pendingServer = {
+                ...server,
+                pendingAction: action,
+                previousStatus: server.status,
+                status: 'pending'
+            };
+
+            servers = servers.map(s => (s.id === id ? pendingServer : s));
+            localStorage.setItem('servers', JSON.stringify(servers));
+            renderServers();
+
+            const restorePreviousState = () => {
+                const restored = {
+                    ...pendingServer,
+                    status: previousState.status,
+                    pid: previousState.pid,
+                    port: previousState.port,
+                    pendingAction: null,
+                    previousStatus: null
+                };
+
+                servers = servers.map(s => (s.id === id ? restored : s));
+                localStorage.setItem('servers', JSON.stringify(servers));
+                renderServers();
+            };
 
             try {
                 const response = await fetch(`/api/${action}`, {
@@ -975,20 +1124,36 @@
                     setTimeout(() => checkServerStatus(id), 2000);
                 } else {
                     showToast(data.error || 'Action failed.');
+                    restorePreviousState();
                 }
             } catch (error) {
                 showToast(`Error: ${error.message}`);
+                restorePreviousState();
             }
         }
 
         function createServerCard(server) {
             const safeName = escapeHtml(server.name || 'Untitled Server');
             const safeUrl = escapeHtml(server.url || '');
-            const status = STATUS_STYLES[server.status] || STATUS_STYLES.unknown;
+            const statusInfo = STATUS_STYLES[server.status] || STATUS_STYLES.unknown;
+            const isBusy = Boolean(server.pendingAction);
+            const actionLabel = ACTION_LABELS[server.pendingAction] || 'Working...';
+            const actionOverlayText = ACTION_PROGRESS_TEXT[server.pendingAction] || 'Working';
+            const badgeClass = isBusy ? STATUS_STYLES.pending.badgeClass : statusInfo.badgeClass;
+            const badgeLabel = isBusy ? actionLabel : statusInfo.label;
+            const busyAttr = isBusy ? 'aria-busy="true"' : 'aria-busy="false"';
+            const disabledAttr = isBusy ? 'disabled' : '';
 
             const metaItems = [];
-            if (server.port) {
-                metaItems.push(`<li class="meta-chip"><span>Port</span>${escapeHtml(server.port)}</li>`);
+            const portList = Array.isArray(server.activePorts) && server.activePorts.length
+                ? server.activePorts
+                    .map(entry => entry && typeof entry === 'object' ? entry.port : entry)
+                    .filter((value) => value !== undefined && value !== null)
+                : (server.port ? [server.port] : []);
+
+            if (portList.length) {
+                const label = portList.length > 1 ? 'Ports' : 'Port';
+                metaItems.push(`<li class="meta-chip"><span>${label}</span>${escapeHtml(portList.join(', '))}</li>`);
             }
             if (server.pid) {
                 metaItems.push(`<li class="meta-chip"><span>PID</span>${escapeHtml(server.pid)}</li>`);
@@ -998,41 +1163,51 @@
                 ? `<ul class="server-card__meta">${metaItems.join('')}</ul>`
                 : `<p class="server-card__hint">Configure this server to set its directory, command, and port.</p>`;
 
+            const progressOverlay = isBusy
+                ? `
+                    <div class="server-card__progress" role="status" aria-live="polite">
+                        <div class="diamond-spinner" aria-hidden="true"></div>
+                        <span class="server-card__progress-text">${escapeHtml(actionOverlayText)}</span>
+                    </div>
+                `
+                : '';
+
             const urlHtml = safeUrl
                 ? `<a href="${server.url}" target="_blank" rel="noopener" class="server-card__url">${safeUrl}</a>`
                 : '';
 
             return `
-                <article class="server-card">
+                <article class="server-card" ${busyAttr}>
+                    ${progressOverlay}
                     <div class="server-card__header">
                         <div class="server-card__title">
                             <h3>${safeName}</h3>
                             ${urlHtml}
                         </div>
-                        <span class="${status.badgeClass}">
+                        <span class="${badgeClass}">
                             <span class="status-dot"></span>
-                            ${status.label}
+                            ${escapeHtml(badgeLabel)}
                         </span>
                     </div>
                     ${metaHtml}
                     <div class="server-card__actions">
-                        <button class="server-action server-action--start" type="button" onclick="performAction(${server.id}, 'start')" aria-label="Start server">
+                        <button class="server-action server-action--start" type="button" onclick="performAction(${server.id}, 'start')" aria-label="Start server" ${disabledAttr}>
                             <span class="server-action__icon">▶</span>
                             Start
                         </button>
-                        <button class="server-action server-action--stop" type="button" onclick="performAction(${server.id}, 'stop')" aria-label="Stop server">
+                        <button class="server-action server-action--stop" type="button" onclick="performAction(${server.id}, 'stop')" aria-label="Stop server" ${disabledAttr}>
                             <span class="server-action__icon">■</span>
                             Stop
                         </button>
-                        <button class="server-action server-action--restart" type="button" onclick="performAction(${server.id}, 'restart')" aria-label="Restart server">
+                        <button class="server-action server-action--restart" type="button" onclick="performAction(${server.id}, 'restart')" aria-label="Restart server" ${disabledAttr}>
                             <span class="server-action__icon">⟳</span>
                             Restart
                         </button>
-                        <button class="server-action server-action--configure" type="button" onclick="openConfigModal(${server.id})" aria-label="Configure server">
+                        <button class="server-action server-action--configure" type="button" onclick="openConfigModal(${server.id})" aria-label="Configure server" ${disabledAttr}>
                             <span class="server-action__icon">⚙</span>
                             Configure
                         </button>
-                        <button class="server-action server-action--remove" type="button" onclick="removeServer(${server.id})" aria-label="Remove server">
+                        <button class="server-action server-action--remove" type="button" onclick="removeServer(${server.id})" aria-label="Remove server" ${disabledAttr}>
                             <span class="server-action__icon">✕</span>
                             Remove
                         </button>

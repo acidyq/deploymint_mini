@@ -133,6 +133,18 @@ exec(`kill ${portCheck.pid}`, (error) => {
 - **Result**: Server starts successfully, process spawns correctly
 - **Lesson**: Need to sanitize input from configuration modal
 
+### Issue 2: Magenta Converter Stuck API Port
+- **Error**: `npm start` failed because port 3001 was already in use by a previous `node dist/index.js`
+- **Root Cause**: Deploymint only freed the primary UI port (4003); the API worker on 3001 kept running between restarts
+- **Fix**: Extended `api/server.js` to accept multiple ports per server, aggressively free each configured port before start/restart, and stop all running PIDs; added `ports` array for Magenta Converter in `servers.json`
+- **Result**: Starting Magenta Converter now reliably clears both UI and API processes, preventing EADDRINUSE errors
+- **Lesson**: Some workspaces launch multiple listeners, so configuration must track every port that needs to be reclaimed
+
+### Enhancement: Action Progress Feedback
+- **Motivation**: Starting or stopping servers had no visible progress indicator, making it unclear if a request succeeded or stalled
+- **Change**: Added an overlay with a spinning white diamond, disabled actions while requests are in flight, and surfaced “Starting…” status badges in `public/index.html`
+- **Result**: Users see immediate feedback while Deploymint works, preventing duplicate clicks during longer start cycles
+
 ## Features Implemented
 
 ### ✅ Manual Server Configuration
